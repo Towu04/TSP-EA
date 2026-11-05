@@ -1,8 +1,41 @@
 import src.Reporter as Reporter
 import numpy as np
 import numba as nb
+from dataclasses import dataclass
 
-class r0123456:
+# --- REPRESENTATION ---
+@dataclass
+class Individual:
+	def __init__(self, pred: np.ndarray, succ: np.ndarray, cost: int):
+		self.pred = pred
+		self.succ = succ
+		self.cost = cost
+
+	def tour(self):
+		# Convert the predecessor/successor representation to a tour representation.
+		#Time complexity: O(N)
+		N = self.pred.shape[0]
+		tour = np.zeros(N, dtype=np.int32)
+		current_city = 0
+		for i in range(N):
+			tour[i] = current_city
+			current_city = self.succ[current_city]
+		return tour
+
+# --- OBJECTIVE FUNCTION ---
+def compute_cost(distanceMatrix, succ):
+	# Compute the cost of a tour given its successor representation.
+	#Time complexity: O(N)
+	N = succ.shape[0]
+	cost = 0
+	current_city = 0
+	for _ in range(N):
+		next_city = succ[current_city]
+		cost += distanceMatrix[current_city, next_city]
+		current_city = next_city
+	return cost
+
+class TSP_EA:
 
 	def __init__(self):
 		self.reporter = Reporter.Reporter(self.__class__.__name__)
