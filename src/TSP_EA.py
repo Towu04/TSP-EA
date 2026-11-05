@@ -1,6 +1,7 @@
 import src.Reporter as Reporter
 import numpy as np
 import numba as nb
+from typing import List
 from dataclasses import dataclass
 
 # --- REPRESENTATION ---
@@ -22,8 +23,26 @@ class Individual:
 			current_city = self.succ[current_city]
 		return tour
 
-# --- OBJECTIVE FUNCTION ---
-def compute_cost(distanceMatrix, succ):
+# --- INITIALIZATION ---
+def initialize_population(distanceMatrix: np.ndarray, POP_SIZE: int):
+	# Initialize the population with random tours.
+	# TODO: 2-opt for fitter initial population
+	i = 0
+	N = distanceMatrix.shape[0]
+	population = list()
+	while i < POP_SIZE:
+		tour = np.random.permutation(N)
+		cost = compute_cost_tour(distanceMatrix, tour)
+		if cost == -1:
+			break
+		succ, pred = tour_to_pred_succ(tour)
+		population.append(Individual(pred, succ, cost))
+		i += 1
+	return population
+
+# --- HELPER FUNCTIONS ---
+
+def compute_cost_succ(distanceMatrix: np.ndarray, succ: np.ndarray):
 	# Compute the cost of a tour given its successor representation.
 	#Time complexity: O(N)
 	N = succ.shape[0]
@@ -34,6 +53,51 @@ def compute_cost(distanceMatrix, succ):
 		cost += distanceMatrix[current_city, next_city]
 		current_city = next_city
 	return cost
+
+def compute_cost_tour(distanceMatrix: np.ndarray, tour: np.ndarray):
+	# Compute the cost of a tour given its tour representation.
+	# returns -1 if missing edge
+	N = tour.shape[0]
+	cost = 0
+	for i in range(N-1):
+		distance = distanceMatrix[tour[i], tour[i+1]]
+		if distance == np.inf:
+			return -1
+		else:
+			cost += distance
+	return cost
+
+def compute_pop_fitness(population: List[Individual]):
+	# find the average and best value of a population
+	current_best = population[0].cost
+	pop_size = 0
+	total_cost = 0
+
+	for individual in population:
+		if individual.cost < current_best:
+			current_best = individual.cost
+		total_cost += individual.cost
+		pop_size += 1
+
+	average_cost = total_cost / pop_size
+
+	return average_cost, current_best
+
+
+
+
+
+def tour_to_pred_succ(tour):
+	# convert a tour representation to predecessor and successor representations.
+	# time complexity: O(N)
+	N = tour.shape[0]
+	pred = np.zeros(N, dtype=np.int32)
+	succ = np.zeros(N, dtype=np.int32)
+
+	for i in range(N):
+		pred[tour[i]] = tour[i-1]
+		succ[tour[i]] = tour[i+1]
+	return succ, pred
 
 class TSP_EA:
 
@@ -69,16 +133,7 @@ class TSP_EA:
 			bestObjective = 0.0
 			bestSolution = np.array([0,1,2,3,4,5,6])
 
-			# ----- SELECTION -----
-			# TODO
-
 			# ----- RECOMBINATION -----
-			# TODO
-
-			# ----- MUTATION -----
-			# TODO
-
-			# ----- ELMINATION -----
 			# TODO
 
 
