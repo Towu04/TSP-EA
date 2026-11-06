@@ -30,18 +30,28 @@ class Individual:
 
 
 # --- INITIALIZATION ---
-def initialize_population(distance_matrix: FloatMatrix, pop_size: int) -> list[Individual]:
-    """Initialize the population with valid random tours."""
-    # TODO: 2-opt for fitter initial population
-    # TODO: better initialization strategy for missing edges, retries will be redundant
+def initialize_population(
+    distance_matrix: FloatMatrix, pop_size: int
+) -> list[Individual]:
+    """Initialize the population with valid, locally optimized tours."""
     n: int = distance_matrix.shape[0]
     population: list[Individual] = []
 
     while len(population) < pop_size:
         tour: IntArray = np.random.permutation(n).astype(np.int32)
+        
+        # 1. Repair missing edges first
+        if np.isinf(compute_cost_tour(distance_matrix, tour)):
+            tour = repair_tour(distance_matrix, tour)
+            
+        # 2. Enrich with Or-opt to improve starting fitness
+        tour = or_opt_asymmetric(distance_matrix, tour)
+        
+        # 3. Recompute final cost (and retry in the rare case a dead-end remained)
         cost: float = compute_cost_tour(distance_matrix, tour)
         if np.isinf(cost):
-            continue  # Retry if tour hits an invalid (inf) edge
+            raise Exception
+
         succ, pred = tour_to_pred_succ(tour)
         population.append(Individual(pred=pred, succ=succ, cost=cost))
 
@@ -76,19 +86,69 @@ def compute_cost_tour(distance_matrix: FloatMatrix, tour: IntArray) -> float:
     cost: float = 0.0
     for i in range(n):
         u: int = tour[i]
-        v: int = tour[(i + 1) % n]  # Wraps around to close the tour at i == n - 1
+        v: int = tour[(i + 1) % n]
         distance: float = distance_matrix[u, v]
         if np.isinf(distance):
-            return np.inf
+            raise Exception("this tour is invalid, something went wrong in the initialization or recombination")
         cost += distance
     return cost
 
 
+@nb.njit
+def repair_tour(distance_matrix: FloatMatrix, tour: IntArray) -> IntArray:
+    """Repairs np.inf edges via forward swaps and targeted node relocations."""
+    n: int = tour.shape[0]
+
+    # Phase 1: Forward greedy swaps for indices 0 .. n-2
+    for i in range(n - 1):
+        u: int = tour[i]
+        v: int = tour[i + 1]
+        if np.isinf(distance_matrix[u, v]):
+            # Pick a random starting offset among the remaining unvisited cities (j > i)
+            rem: int = n - (i + 1)
+            start_offset: int = np.random.randint(0, rem)
+            for offset in range(rem):
+                j: int = (i + 1) + ((start_offset + offset) % rem)
+                cand: int = tour[j]
+                if not np.isinf(distance_matrix[u, cand]):
+                    tour[i + 1], tour[j] = tour[j], tour[i + 1]
+                    break
+
+    # Phase 2: Clean up the closing edge (or any stuck edge) via swap/relocation
+    for _pass in range(10):
+        has_inf: bool = False
+        for i in range(n):
+            u = tour[i]
+            v = tour[(i + 1) % n]
+            if np.isinf(distance_matrix[u, v]):
+                has_inf = True
+                start_offset = np.random.randint(0, n)
+                for offset in range(n):
+                    j = (start_offset + offset) % n
+                    if j == i or j == (i + 1) % n:
+                        continue
+                    prev_j: int = (j - 1) % n
+                    next_j: int = (j + 1) % n
+                    next_i: int = (i + 2) % n
+                    cand = tour[j]
+
+                    # Check if swapping v (at i+1) and cand (at j) creates 4 valid edges
+                    if (
+                        not np.isinf(distance_matrix[u, cand])
+                        and not np.isinf(distance_matrix[cand, tour[next_i]])
+                        and not np.isinf(distance_matrix[tour[prev_j], v])
+                        and not np.isinf(distance_matrix[v, tour[next_j]])
+                    ):
+                        tour[(i + 1) % n], tour[j] = tour[j], tour[(i + 1) % n]
+                        break
+        if not has_inf:
+            break
+
+    return tour
+
+
 def compute_pop_fitness(population: list[Individual]) -> tuple[float, Individual]:
     """Return the (average_cost, best_individual) of a non-empty population."""
-    if not population:
-        raise ValueError("Population cannot be empty.")
-
     best_ind: Individual = min(population, key=lambda ind: ind.cost)
     total_cost: float = sum(ind.cost for ind in population)
     average_cost: float = total_cost / len(population)
